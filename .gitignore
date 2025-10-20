@@ -11,3 +11,9 @@ __pycache__/
 .env
 **/models/
 
+backend/models/
+backend/models 2/
+**/chunk-cache/
+**/*.lock
+**/*.locks
+.huggingface/
