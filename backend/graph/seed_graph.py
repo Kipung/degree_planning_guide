@@ -18,9 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from utility.backend_log import logger
 from graph.neo4j_connect import graph  # py2neo Graph
-
-ROOT = Path(__file__).resolve().parent
-DATA_PATH = ROOT / "course_data.json"
+from utility.path_utils import course_data_path
 
 
 # ----------------------------
@@ -152,7 +150,7 @@ def _prepare(records: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[
 
 
 def seed_graph_from_json(path: Optional[Path] = None, batch_size: int = 500) -> None:
-    json_path = Path(path) if path else DATA_PATH
+    json_path = Path(path) if path else course_data_path()
     logger.debug("📄 Loading courses JSON: %s", json_path)
     with json_path.open("r", encoding="utf-8") as f:
         data = json.load(f)

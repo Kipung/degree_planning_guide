@@ -16,7 +16,8 @@ import faiss
 # --------------------------------------
 
 # async generator for streaming
-from typing import AsyncGenerator, List
+import json
+from typing import AsyncGenerator, Dict, List
 # --------------------------------------
 
 # sentence transformer for embeddings
@@ -25,7 +26,7 @@ from sentence_transformers import SentenceTransformer
 
 # langchain LLM and message schema for general LLM usage
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
+from langchain.schema import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 # --------------------------------------
 # system prompts for LLM
 from llm_system_prompts import COURSE_SYSTEM_MESSAGE
@@ -33,6 +34,8 @@ from llm_system_prompts import COURSE_SYSTEM_MESSAGE
 
 # neo4j graph connection, importing the graph instance from neo4j_connect.py
 from graph.neo4j_connect import graph
+from llm.tools import GRAPH_TOOLS, TOOL_LOOKUP
+from utility.path_utils import models_dir
 
 
 # ────────────────
@@ -53,11 +56,7 @@ _local_only = os.getenv("SENTENCE_TRANSFORMER_LOCAL_ONLY", "0").lower() in {"1",
 _embed_cache_dir = os.getenv("SENTENCE_TRANSFORMER_CACHE_DIR") or os.getenv("HF_HOME")
 
 # Default to bundled model directory if present (e.g., /app/models/<model-name>)
-_default_model_dir = (
-    Path(__file__).resolve().parents[1]
-    / "models"
-    / EMBED_MODEL_NAME.split("/")[-1]
-)
+_default_model_dir = models_dir() / EMBED_MODEL_NAME.split("/")[-1]
 _local_model_path = (
     Path(_configured_local_path).expanduser()
     if _configured_local_path
@@ -161,10 +160,19 @@ def search_similar_courses_data(query: str, top_k: int = TOP_K) -> List[dict]:
     return results
 
 
+def ensure_faiss_index() -> None:
+    """
+    Ensure the FAISS index exists before running similarity searches.
+    """
+    if not _course_codes or "_faiss_index" not in globals() or not hasattr(_faiss_index, "search"):
+        build_faiss_index()
+
+
 def build_course_context(question: str, top_k: int = TOP_K) -> str:
     """
     Create a context block from the top_k similar courses.
     """
+    ensure_faiss_index()
     sims = search_similar_courses_data(question, top_k)
     lines: List[str] = []
     for item in sims:
@@ -191,11 +199,73 @@ def build_course_context(question: str, top_k: int = TOP_K) -> str:
 # ────────────────
 # LLM & streaming
 # ────────────────
+LLM_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+
 llm = ChatOpenAI(
-    model="mistral",
+    model=LLM_MODEL,
     streaming=True,
     temperature=0.0,
 )
+
+_llm_with_tools = llm.bind_tools(GRAPH_TOOLS)
+
+
+async def stream_llm_events(messages: List[BaseMessage]) -> AsyncGenerator[Dict[str, object], None]:
+    """
+    Stream LLM output tokens while handling LangChain tool calls.
+    Yields dict events of shape:
+        {"type": "token", "text": str}
+        {"type": "final", "assistant": AIMessage | None, "history_updates": List[BaseMessage]}
+    """
+    working_messages: List[BaseMessage] = list(messages)
+    conversation_updates: List[BaseMessage] = []
+
+    while True:
+        response_chunk = None
+
+        async for chunk in _llm_with_tools.astream(working_messages):
+            response_chunk = chunk if response_chunk is None else response_chunk + chunk
+            token = getattr(chunk, "content", None)
+            if token:
+                yield {"type": "token", "text": token}
+
+        if response_chunk is None:
+            yield {"type": "final", "assistant": None, "history_updates": conversation_updates}
+            return
+
+        response_message = response_chunk.to_message()
+
+        if response_message.tool_calls:
+            working_messages.append(response_message)
+            conversation_updates.append(response_message)
+
+            for tool_call in response_message.tool_calls:
+                tool_name = getattr(tool_call, "name", None) or tool_call.get("name")
+                tool_args = getattr(tool_call, "args", None) or tool_call.get("args", {})
+                tool_id = getattr(tool_call, "id", None) or tool_call.get("id")
+
+                tool = TOOL_LOOKUP.get(tool_name or "")
+                if not tool:
+                    tool_result: object = {"error": f"Tool '{tool_name}' is not available."}
+                else:
+                    try:
+                        tool_result = tool.invoke(tool_args)
+                    except Exception as exc:  # pragma: no cover
+                        tool_result = {"error": f"Error running tool '{tool_name}': {exc}"}
+
+                result_text = (
+                    tool_result if isinstance(tool_result, str) else json.dumps(tool_result, ensure_ascii=False)
+                )
+                tool_message = ToolMessage(content=result_text, tool_call_id=tool_id)
+                working_messages.append(tool_message)
+                conversation_updates.append(tool_message)
+
+            continue
+
+        working_messages.append(response_message)
+        conversation_updates.append(response_message)
+        yield {"type": "final", "assistant": response_message, "history_updates": conversation_updates}
+        return
 
 
 async def run_graph_rag_stream(question: str) -> AsyncGenerator[str, None]:
@@ -208,8 +278,7 @@ async def run_graph_rag_stream(question: str) -> AsyncGenerator[str, None]:
         return
 
     # Ensure FAISS index exists
-    if not _course_codes or not hasattr(_faiss_index, 'search'):
-        build_faiss_index()
+    ensure_faiss_index()
 
     # Build context and log
     context = build_course_context(question)
@@ -221,20 +290,9 @@ async def run_graph_rag_stream(question: str) -> AsyncGenerator[str, None]:
     courses = SystemMessage(content=f"Relevant courses:\n{context}")
     human   = HumanMessage(content=question)
 
-    async for chunk in llm.astream([system, courses, human]):
-        text = None
-        # Prefer content if non-empty
-        if hasattr(chunk, 'content') and chunk.content:
-            text = chunk.content
-        # Fallback to text() or text attribute
-        elif hasattr(chunk, 'text'):
-            maybe = chunk.text
-            text = maybe() if callable(maybe) else maybe
-        else:
-            text = str(chunk)
+    async for event in stream_llm_events([system, courses, human]):
+        if event.get("type") == "token":
+            yield event["text"]  # type: ignore[index]
 
-        # Only yield real text, skip empty
-        if text:
-            yield text
-# Expose LLM instance to be used from app.py
-__all__ = ["run_graph_rag_stream", "llm"]
+# Expose LLM helpers to be used from app.py
+__all__ = ["run_graph_rag_stream", "stream_llm_events", "llm", "build_course_context", "ensure_faiss_index"]

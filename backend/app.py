@@ -10,7 +10,7 @@ from langchain.schema import SystemMessage, HumanMessage, AIMessage
 
 from llm_system_prompts import GENERAL_SYSTEM_MESSAGE, COURSE_SYSTEM_MESSAGE
 from graph.seed_graph import seed_graph_from_json
-from graph.graph_langchain import llm
+from graph.graph_langchain import build_course_context, stream_llm_events
 from utility.backend_log import logger
 
 
@@ -50,33 +50,51 @@ async def plan_stream(question: str = Query(...)):
     # Determine message context
     is_course = is_course_related(question)
 
-    if not global_history:
-        # First user message — include system message
-        system_msg = SystemMessage(
-            content=COURSE_SYSTEM_MESSAGE if is_course else GENERAL_SYSTEM_MESSAGE
-        )
-        messages = [system_msg, HumanMessage(content=question)]
+    history_seed: List = list(global_history)
+
+    desired_system_content = COURSE_SYSTEM_MESSAGE if is_course else GENERAL_SYSTEM_MESSAGE
+    if history_seed and isinstance(history_seed[0], SystemMessage):
+        if history_seed[0].content != desired_system_content:
+            history_seed[0] = SystemMessage(content=desired_system_content)
     else:
-        # Subsequent messages — reuse history only
-        messages = global_history + [HumanMessage(content=question)]
+        history_seed.insert(0, SystemMessage(content=desired_system_content))
+
+    messages: List = list(history_seed)
+
+    context_block = ""
+    if is_course:
+        context_block = build_course_context(question)
+        if context_block:
+            messages.append(SystemMessage(content=f"Relevant courses:\n{context_block}"))
+
+    human_msg = HumanMessage(content=question)
+    messages.append(human_msg)
 
     async def event_generator():
         full_reply = ""
+        final_event = None
 
-        async for chunk in llm.astream(messages):
-            content = getattr(chunk, "content", "") or (
-                chunk.text() if callable(getattr(chunk, "text", None)) else getattr(chunk, "text", "")
-            ) or str(chunk)
+        async for event in stream_llm_events(messages):
+            if event.get("type") == "token":
+                content = event["text"]  # type: ignore[index]
+                if content and not content.startswith("content="):
+                    full_reply += content
+                    json_data = json.dumps({"token": content})
+                    yield f"data: {json_data}\n"
+            elif event.get("type") == "final":
+                final_event = event
 
-            if content and not content.startswith("content="):
-                full_reply += content
-                json_data = json.dumps({"token": content})
-                yield f"data: {json_data}\n"
+        if final_event:
+            updates = list(final_event.get("history_updates", []))  # type: ignore[arg-type]
+            new_history: List = list(history_seed)
+            new_history.append(human_msg)
+            if updates:
+                new_history.extend(updates)
+            elif full_reply.strip():
+                new_history.append(AIMessage(content=full_reply))
 
-        # Update static global memory
-        if full_reply.strip():
-            global_history.append(HumanMessage(content=question))
-            global_history.append(AIMessage(content=full_reply))
+            global_history.clear()
+            global_history.extend(new_history)
 
             logger.debug("Updated global history:")
             for m in global_history:

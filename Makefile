@@ -4,6 +4,11 @@ dev:
 dev-log:
 	docker-compose up --build
 
+start:
+	docker-compose up -d
+start-log:
+	docker-compose up
+
 devstop:
 	docker-compose down
 devclean:
