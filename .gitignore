@@ -1,6 +1,34 @@
+# OS files
+.DS_Store
+backend/.DS_Store
+
+# Python cache
+__pycache__/
+*/__pycache__/
+backend/__pycache__/
+backend/graph/__pycache__/
+
+# Virtual environments
+.venv/
+venv/
+backend/venv/
+
+# Environment variables
+.env
+backend/.env
+
+# IDE and editor configs
+.vscode/
+.idea/
+
+# Models and checkpoints
 backend/models/
 !backend/models/.gitkeep
+
+# Cache and temporary files
 **/chunk-cache/
 **/*.lock
 **/*.locks
 .huggingface/
+*.log
+*.tmp
