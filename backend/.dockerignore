@@ -1,0 +1,16 @@
+.git
+**/__pycache__/
+**/*.pyc
+venv/
+.env
+*.db
+*.pt
+*.bin
+*.csv
+*.parquet
+data/
+datasets/
+notebooks/
+hf_cache/
+.huggingface/
+.DS_Store

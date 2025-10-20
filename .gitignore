@@ -1,0 +1,11 @@
+backend/venv/
+node_modules/
+data/
+.venv/
+__pycache__/
+*.pt
+*.bin
+*.ckpt
+*.log
+.DS_Store
+.env

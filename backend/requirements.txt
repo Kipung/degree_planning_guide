@@ -1,0 +1,17 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+pydantic==2.9.2
+
+langchain==0.3.12
+langchain-community==0.3.12
+langchain-openai==0.2.10
+openai==1.63.2
+
+neo4j==5.23.1
+py2neo==2021.2.4
+sentence-transformers==3.0.1
+faiss-cpu==1.8.0.post1
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.7.1+cpu
