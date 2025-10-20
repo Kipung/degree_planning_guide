@@ -4,3 +4,23 @@ backend/models/
 **/*.lock
 **/*.locks
 .huggingface/
+# System and environment files
+.DS_Store
+.env
+.venv/
+__pycache__/
+*/__pycache__/
+venv/
+backend/.DS_Store
+backend/.env
+backend/venv/
+
+# Model directories
+backend/models/
+!backend/models/.gitkeep
+
+# Cache and lock files
+**/chunk-cache/
+**/*.lock
+**/*.locks
+.huggingface/
