@@ -3,8 +3,10 @@
 
 # Python cache
 __pycache__/
-*/__pycache__/
-backend/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Caches
 .cache/
 **/chunk-cache/
 
@@ -24,7 +26,3 @@ backend/.env
 # Models
 backend/models/
 !backend/models/.gitkeep
-.cache/
-**/__pycache__/
-*.pyc
-
