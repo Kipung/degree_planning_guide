@@ -24,3 +24,7 @@ backend/.env
 # Models
 backend/models/
 !backend/models/.gitkeep
+.cache/
+**/__pycache__/
+*.pyc
+
