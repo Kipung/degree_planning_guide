@@ -17,3 +17,9 @@ backend/models 2/
 **/*.lock
 **/*.locks
 .huggingface/
+backend/models/
+!backend/models/.gitkeep
+**/chunk-cache/
+**/*.lock
+**/*.locks
+.huggingface/
