@@ -4,31 +4,3 @@ backend/models/
 **/*.lock
 **/*.locks
 .huggingface/
-# OS metadata
-.DS_Store
-backend/.DS_Store
-
-# Virtual environments
-.venv/
-venv/
-backend/venv/
-
-# Environment variables
-.env
-backend/.env
-
-# Python cache
-__pycache__/
-*/__pycache__/
-backend/__pycache__/
-backend/graph/__pycache__/
-
-# Models (ignored permanently)
-backend/models/
-!backend/models/.gitkeep
-
-# Misc caches and locks
-**/chunk-cache/
-**/*.lock
-**/*.locks
-.huggingface/
