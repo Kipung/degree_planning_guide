@@ -59,45 +59,35 @@ def _split_prereq_rules(prereq_data: Optional[List[Dict]]) -> Tuple[List[str], L
 # -----------------------------
 
 def get_course_info(course_code: str) -> Optional[Dict]:
-    """Return a single course mapped from JSON property names to standard fields.
-
-    The underlying node properties follow the JSON schema: course_code, course_name,
-    course_description, credit_hours_min, prerequisites, etc. We map them to a
-    stable interface for the agent: code, name, description, units, requires,
-    requires_any, coreq, recommended_semester, satisfies.
-    """
+    """Return a single course using the current seeded graph schema."""
     code = _normalize_course_code(course_code)
     query = """
-    MATCH (c:Course {course_code: $code})
-    RETURN c.course_code AS course_code,
-           c.course_name AS course_name,
-           c.course_description AS course_description,
-           c.credit_hours_min AS credit_hours_min,
-           c.prerequisites AS prerequisites,
-           c.recommended_semester AS recommended_semester,
-           c.satisfies AS satisfies
+    MATCH (c:Course {code: $code})
+    RETURN c.code AS code,
+           c.name AS name,
+           c.description AS description,
+           c.units_min AS units_min,
+           c.requires AS requires,
+           c.offered AS offered
     """
     recs = graph.run(query, code=code).data()
     if not recs:
         return None
     c = recs[0]
-    req, req_any, coreq = _split_prereq_rules(c.get("prerequisites"))
-    # Normalize units to int when possible
-    units = c.get("credit_hours_min")
+    units = c.get("units_min")
     try:
         units = int(units) if units is not None else None
     except Exception:
         units = None
     return {
-        "code": c.get("course_code"),
-        "name": c.get("course_name"),
-        "description": c.get("course_description"),
+        "code": c.get("code"),
+        "name": c.get("name"),
+        "description": c.get("description"),
         "units": units,
-        "requires": req,
-        "requires_any": req_any,
-        "coreq": coreq,
-        "recommended_semester": c.get("recommended_semester"),
-        "satisfies": c.get("satisfies"),
+        "requires": c.get("requires") or [],
+        "requires_any": [],
+        "coreq": [],
+        "offered": c.get("offered") or [],
     }
 
 
@@ -107,13 +97,13 @@ def get_course_detail(course_code: str) -> Optional[Dict]:
 
 
 def get_courses_by_semester(semester: str) -> List[Dict]:
-    """List courses by JSON's optional recommended_semester field if present."""
+    """List courses by offered term when available."""
     query = """
     MATCH (c:Course)
-    WHERE c.recommended_semester = $semester
-    RETURN c.course_code AS code,
-           c.course_name AS name,
-           toInteger(c.credit_hours_min) AS units
+    WHERE any(term IN coalesce(c.offered, []) WHERE toLower(term) CONTAINS toLower($semester))
+    RETURN c.code AS code,
+           c.name AS name,
+           toInteger(c.units_min) AS units
     ORDER BY code
     """
     return graph.run(query, semester=semester).data()
@@ -122,9 +112,9 @@ def get_courses_by_semester(semester: str) -> List[Dict]:
 def list_all_courses(limit: int = 200, skip: int = 0) -> List[Dict]:
     query = """
     MATCH (c:Course)
-    RETURN c.course_code AS code,
-           c.course_name AS name,
-           toInteger(c.credit_hours_min) AS units
+    RETURN c.code AS code,
+           c.name AS name,
+           toInteger(c.units_min) AS units
     ORDER BY code SKIP $skip LIMIT $limit
     """
     return graph.run(query, limit=limit, skip=skip).data()
@@ -134,12 +124,12 @@ def search_courses(text: str, limit: int = 25) -> List[Dict]:
     q = (text or "").lower().strip()
     query = """
     MATCH (c:Course)
-    WHERE toLower(c.course_code) CONTAINS $q
-       OR toLower(c.course_name) CONTAINS $q
-       OR toLower(coalesce(c.course_description, "")) CONTAINS $q
-    RETURN c.course_code AS code,
-           c.course_name AS name,
-           toInteger(c.credit_hours_min) AS units
+    WHERE toLower(c.code) CONTAINS $q
+       OR toLower(c.name) CONTAINS $q
+       OR toLower(coalesce(c.description, "")) CONTAINS $q
+    RETURN c.code AS code,
+           c.name AS name,
+           toInteger(c.units_min) AS units
     ORDER BY code LIMIT $limit
     """
     return graph.run(query, q=q, limit=limit).data()
@@ -157,25 +147,24 @@ def get_prerequisites(course_code: str) -> Dict[str, List[str]]:
 
 
 def _all_courses_with_prereqs() -> List[Dict]:
-    """Fetch minimal fields for dependency computations using JSON properties."""
+    """Fetch minimal fields for dependency computations using seeded properties."""
     query = """
     MATCH (c:Course)
-    RETURN c.course_code AS course_code,
-           c.course_name AS course_name,
-           c.prerequisites AS prerequisites,
-           toInteger(c.credit_hours_min) AS units
+    RETURN c.code AS code,
+           c.name AS name,
+           c.requires AS requires,
+           toInteger(c.units_min) AS units
     """
     rows = graph.run(query).data()
     out = []
     for r in rows:
-        req, req_any, coreq = _split_prereq_rules(r.get("prerequisites"))
         out.append({
-            "code": r.get("course_code"),
-            "name": r.get("course_name"),
+            "code": r.get("code"),
+            "name": r.get("name"),
             "units": r.get("units"),
-            "requires": req,
-            "requires_any": req_any,
-            "coreq": coreq,
+            "requires": r.get("requires") or [],
+            "requires_any": [],
+            "coreq": [],
         })
     return out
 
@@ -254,9 +243,9 @@ def get_paths_to(target_code: str, max_depth: int = 4) -> List[Dict]:
     """
     target = _normalize_course_code(target_code)
     query = """
-    MATCH p = (s:Course)-[:REQUIRES|REQUIRES_ANY*1..$max_depth]->(t:Course {course_code: $target})
+    MATCH p = (s:Course)-[:REQUIRES*1..$max_depth]->(t:Course {code: $target})
     WITH nodes(p) AS ns
-    RETURN [x IN ns | coalesce(x.course_code, x.code)] AS nodes, size(ns) - 1 AS length
+    RETURN [x IN ns | x.code] AS nodes, size(ns) - 1 AS length
     ORDER BY length ASC LIMIT 25
     """
     try:
@@ -268,7 +257,7 @@ def get_paths_to(target_code: str, max_depth: int = 4) -> List[Dict]:
 def course_exists(course_code: str) -> bool:
     code = _normalize_course_code(course_code)
     q = """
-    MATCH (c:Course {course_code: $code}) RETURN count(c) AS n
+    MATCH (c:Course {code: $code}) RETURN count(c) AS n
     """
     rec = graph.run(q, code=code).data()
     return bool(rec and rec[0].get("n", 0) > 0)

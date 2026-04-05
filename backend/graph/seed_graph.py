@@ -78,7 +78,7 @@ def _extract_codes_from_prereq_item(item: Any) -> List[str]:
     if item is None:
         return out
     if isinstance(item, str):
-        out += re.findall(r"[A-Z]{2,4}\\d{2,4}", item.upper())
+        out += re.findall(r"[A-Z]{2,4}\d{2,4}", item.upper())
         return out
     if isinstance(item, dict):
         courses = item.get("courses")

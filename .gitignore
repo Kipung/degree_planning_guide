@@ -26,3 +26,20 @@ backend/.env
 # Models
 backend/models/
 !backend/models/.gitkeep
+
+.git
+.gitignore
+node_modules
+dist
+build
+.vite
+.next
+.DS_Store
+.env*
+*.log
+venv
+.venv
+__pycache__
+.cache
+models
+data

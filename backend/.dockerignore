@@ -13,4 +13,8 @@ datasets/
 notebooks/
 hf_cache/
 .huggingface/
+models/
+models*/
+.cache/
+.local_cache/
 .DS_Store

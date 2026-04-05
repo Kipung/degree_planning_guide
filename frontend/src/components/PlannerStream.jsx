@@ -62,7 +62,7 @@ export default function PlannerStream() {
                     return [...prev.slice(0, -1), updated];
                   });
                 }
-              } catch (e) {
+              } catch {
                 console.error("Failed to parse JSON:", jsonStr);
               }
             }
