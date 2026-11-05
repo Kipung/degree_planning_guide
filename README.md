@@ -1,4 +1,4 @@
-# Degree Planning Assistant
+<picture><source media="(prefers-color-scheme: dark)" srcset=".github/banner-dark.svg"><img src=".github/banner-light.svg" width="100%" alt="Degree Planning Assistant"></picture>
 
 An AI-assisted degree planning prototype for California Baptist University course advising. The project combines a FastAPI backend, a React frontend, and a Neo4j course graph to answer planning questions through a chat interface with streamed responses.
 
